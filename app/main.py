@@ -7,7 +7,8 @@ import uvicorn
 from fastapi import FastAPI
 
 from app.core.config import settings
-from app.health_server import Heartbeat, start_health_server
+from app.core.dependency_checks import check_kubectl, check_llm
+from app.health_server import DependencyStatus, Heartbeat, start_health_server
 from app.persistence.store import store
 from app.routers import diagnose
 
@@ -18,20 +19,43 @@ async def _beat_forever(heartbeat: Heartbeat) -> None:
         await asyncio.sleep(settings.heartbeat_interval_seconds)
 
 
+async def _check_dependencies(status_cache: DependencyStatus) -> None:
+    results = await asyncio.gather(check_kubectl(), check_llm())
+    status_cache.update(list(results))
+
+
+async def _check_dependencies_forever(status_cache: DependencyStatus) -> None:
+    while True:
+        await _check_dependencies(status_cache)
+        await asyncio.sleep(settings.dependency_check_interval_seconds)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     heartbeat = Heartbeat()
     heartbeat.beat()
+    dependencies = DependencyStatus()
+    await _check_dependencies(dependencies)
     health_server = start_health_server(
-        settings.health_port, heartbeat, store, settings.health_stale_seconds
+        settings.health_port,
+        heartbeat,
+        store,
+        dependencies,
+        settings.health_stale_seconds,
     )
     beat_task = asyncio.create_task(_beat_forever(heartbeat))
+    dependency_task = asyncio.create_task(
+        _check_dependencies_forever(dependencies)
+    )
     try:
         yield
     finally:
         beat_task.cancel()
+        dependency_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await beat_task
+        with contextlib.suppress(asyncio.CancelledError):
+            await dependency_task
         health_server.shutdown()
 
 

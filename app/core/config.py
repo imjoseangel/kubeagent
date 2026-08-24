@@ -36,6 +36,9 @@ class Settings(BaseSettings):
         os.getenv("HEARTBEAT_INTERVAL_SECONDS", "2")
     )
     health_stale_seconds: int = int(os.getenv("HEALTH_STALE_SECONDS", "10"))
+    dependency_check_interval_seconds: int = int(
+        os.getenv("DEPENDENCY_CHECK_INTERVAL_SECONDS", "15")
+    )
 
     @field_validator("kube_allowed_namespaces", mode="before")
     @classmethod

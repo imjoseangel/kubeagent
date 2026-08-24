@@ -87,6 +87,7 @@ uv run mypy app examples
 | `HEALTH_PORT` | Port for the dedicated `/healthz`/`/readyz`/`/metrics` server (default `8001`). |
 | `HEARTBEAT_INTERVAL_SECONDS` | How often the main event loop stamps a heartbeat (default `2`). |
 | `HEALTH_STALE_SECONDS` | How long the heartbeat can go unrefreshed before `/healthz`/`/readyz` report the loop as stalled (default `10`). |
+| `DEPENDENCY_CHECK_INTERVAL_SECONDS` | How often to re-check kubectl/LiteLLM reachability for `/readyz` and `/metrics` (default `15`). |
 
 ## API
 
@@ -166,14 +167,44 @@ switch to `503`. A single legitimately long request doesn't trip this —
 beating — but a truly stalled loop does, so Kubernetes can restart a pod
 that's actually stuck rather than one that's merely busy investigating.
 
+`/healthz` and `/readyz` answer different questions, and are wired to
+different probes on purpose:
+
+- **`/healthz` (liveness)** only reflects the heartbeat above. A stuck
+  process should be restarted; nothing else should ever flip this,
+  because restarting a pod can't fix a problem that lives outside it.
+- **`/readyz` (readiness)** additionally reports the cached reachability
+  of this service's two hard dependencies — the Kubernetes API (via
+  `kubectl`, `app/core/dependency_checks.py`) and the LiteLLM endpoint —
+  checked on a periodic background task (`DEPENDENCY_CHECK_INTERVAL_SECONDS`,
+  default `15`s) and served from cache, never a live call during the
+  probe itself. If either is unreachable the agent can't do its job
+  right now, so `/readyz` returns `503` and Kubernetes pulls the pod out
+  of Service routing — without killing it, since restarting fixes
+  nothing when the outage is external.
+
 ```bash
 curl localhost:8001/healthz
+# {"status": "ok", "pod": "kubeagent-7f8c9d-abcde"}
+
 curl localhost:8001/readyz
 ```
 
-`/metrics` exposes the same heartbeat-age signal plus investigation
-counts by status, in Prometheus text exposition format — no
-`prometheus_client` dependency, hand-rolled to match this module's
+```jsonc
+{
+  "status": "ready",
+  "pod": "kubeagent-7f8c9d-abcde",
+  "checks": {
+    "loop": {"ok": true, "status": 200, "message": "event loop heartbeat fresh"},
+    "kubectl": {"ok": true, "status": 200, "message": "Kubernetes API reachable"},
+    "llm": {"ok": true, "status": 200, "message": "LiteLLM endpoint reachable"}
+  }
+}
+```
+
+`/metrics` exposes the same heartbeat-age and per-dependency signals plus
+investigation counts by status, in Prometheus text exposition format —
+no `prometheus_client` dependency, hand-rolled to match this module's
 stdlib-only approach:
 
 ```bash
@@ -183,6 +214,8 @@ curl localhost:8001/metrics
 ```
 kubeagent_up 1
 kubeagent_event_loop_heartbeat_age_seconds 0.42
+kubeagent_dependency_up{dependency="kubectl"} 1
+kubeagent_dependency_up{dependency="llm"} 1
 kubeagent_investigations_total{status="running"} 1
 kubeagent_investigations_total{status="awaiting_approval"} 0
 kubeagent_investigations_total{status="completed"} 3
