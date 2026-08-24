@@ -1,10 +1,24 @@
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 import uvicorn
 from fastapi import FastAPI
 
-from app.routers import diagnose, k8s_health
+from app.core.config import settings
+from app.health_server import start_health_server
+from app.routers import diagnose
 
-app = FastAPI(title="kubeagent")
-app.include_router(k8s_health.router)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    health_server = start_health_server(settings.health_port)
+    try:
+        yield
+    finally:
+        health_server.shutdown()
+
+
+app = FastAPI(title="kubeagent", lifespan=lifespan)
 app.include_router(diagnose.router)
 
 

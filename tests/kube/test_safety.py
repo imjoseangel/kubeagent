@@ -59,6 +59,7 @@ def test_allowed_call_builds_expected_argv() -> None:
         capture_output=True,
         text=True,
         timeout=20,
+        check=False,
     )
     assert out == "pod-a  Running"
 
@@ -71,7 +72,11 @@ def test_call_without_namespace_skips_namespace_flag() -> None:
         kubectl(["get", "pods"], None, [])
 
     mocked_run.assert_called_once_with(
-        ["kubectl", "get", "pods"], capture_output=True, text=True, timeout=20
+        ["kubectl", "get", "pods"],
+        capture_output=True,
+        text=True,
+        timeout=20,
+        check=False,
     )
 
 

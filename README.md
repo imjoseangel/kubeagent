@@ -84,6 +84,7 @@ uv run mypy app examples
 | `KUBE_ALLOWED_NAMESPACES` | Comma-separated namespace allowlist. **Empty denies everything.** |
 | `KUBE_MAX_HOPS` | Hop budget before an investigation is forced to converge (default `8`). |
 | `APPROVAL_TIMEOUT_SECONDS` | How long a pending restart/rollback approval waits before it's treated as rejected (default `600`). |
+| `HEALTH_PORT` | Port for the dedicated `/healthz`/`/readyz` server (default `8001`). |
 
 ## API
 
@@ -136,7 +137,26 @@ curl localhost:8000/diagnose
 # [{"id": "...", "namespace": "staging", "status": "completed", "created_at": "..."}, ...]
 ```
 
-Health checks live at `/healthz` and `/readyz`.
+Health checks live at `/healthz` and `/readyz` on a separate port
+(`HEALTH_PORT`, default `8001`) — see [Health checks](#health-checks)
+below.
+
+## Health checks
+
+`/healthz` and `/readyz` are served by a small stdlib `http.server`
+(`app/health_server.py`) running on its own thread and socket, on
+`HEALTH_PORT` (default `8001`) — not as FastAPI routes on the main app
+port. The main app runs on a single asyncio event loop; a long-running
+LLM call or (hypothetically) a blocking `kubectl` call there would stall
+every coroutine on that loop, including a health route defined on the same
+app. Answering probes from a separate thread/socket means they keep
+responding even if that ever happens, so Kubernetes doesn't restart a pod
+that's merely busy investigating.
+
+```bash
+curl localhost:8001/healthz
+curl localhost:8001/readyz
+```
 
 ## Standalone example
 

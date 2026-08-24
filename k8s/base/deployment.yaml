@@ -20,6 +20,7 @@ spec:
           image: kubeagent:latest
           ports:
             - containerPort: 8000
+            - containerPort: 8001
           envFrom:
             - secretRef:
                 name: kubeagent-litellm
@@ -28,12 +29,12 @@ spec:
           readinessProbe:
             httpGet:
               path: /readyz
-              port: 8000
+              port: 8001
             initialDelaySeconds: 5
           livenessProbe:
             httpGet:
               path: /healthz
-              port: 8000
+              port: 8001
             initialDelaySeconds: 5
           resources:
             requests:

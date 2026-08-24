@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     approval_timeout_seconds: int = int(
         os.getenv("APPROVAL_TIMEOUT_SECONDS", "600")
     )
+    health_port: int = int(os.getenv("HEALTH_PORT", "8001"))
 
     @field_validator("kube_allowed_namespaces", mode="before")
     @classmethod
