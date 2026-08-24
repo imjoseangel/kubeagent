@@ -31,7 +31,7 @@ def kubectl_mutate(
         namespace,
     ]
     result = subprocess.run(
-        cmd, capture_output=True, text=True, timeout=timeout
+        cmd, capture_output=True, text=True, timeout=timeout, check=False
     )
     if result.returncode != 0:
         return f"COMMAND FAILED: {result.stderr.strip()[:600]}"

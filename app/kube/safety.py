@@ -35,9 +35,7 @@ def kubectl(
     from `app`.
     """
     if not args or args[0] not in ALLOWED_VERBS:
-        raise KubectlDenied(
-            f"verb '{args[0] if args else ''}' is not permitted"
-        )
+        raise KubectlDenied(f"verb '{args[0] if args else ''}' is not permitted")
     if FORBIDDEN & set(args):
         raise KubectlDenied("forbidden operation in arguments")
     if any("secret" in a.lower() for a in args):
@@ -50,7 +48,7 @@ def kubectl(
         cmd += ["-n", namespace]
 
     result = subprocess.run(
-        cmd, capture_output=True, text=True, timeout=timeout
+        cmd, capture_output=True, text=True, timeout=timeout, check=False
     )
     if result.returncode != 0:
         return f"COMMAND FAILED: {result.stderr.strip()[:600]}"
