@@ -1,0 +1,127 @@
+<html>
+    <head>
+        <meta charset="utf-8">
+        
+            <script src="lib/bindings/utils.js"></script>
+            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/vis-network/9.1.2/dist/dist/vis-network.min.css" integrity="sha512-WgxfT5LWjfszlPHXRmBWHkV2eceiWTOBvrKCNbdgDYTHrT2AeLCGbF4sZlZw3UMN3WtL0tGUoIAKsu8mllg/XA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+            <script src="https://cdnjs.cloudflare.com/ajax/libs/vis-network/9.1.2/dist/vis-network.min.js" integrity="sha512-LnvoEWDFrqGHlHmDD2101OrLcbsfkrzoSpvtSQtxK3RMnRV0eOkhhBN2dXHKRrUU8p2DGRTk35n4O8nWSVe1mQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+            
+        
+<center>
+<h1></h1>
+</center>
+
+<!-- <link rel="stylesheet" href="../node_modules/vis/dist/vis.min.css" type="text/css" />
+<script type="text/javascript" src="../node_modules/vis/dist/vis.js"> </script>-->
+        <link
+          href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.0-beta3/dist/css/bootstrap.min.css"
+          rel="stylesheet"
+          integrity="sha384-eOJMYsd53ii+scO/bJGFsiCZc+5NDVN2yr8+0RDqr0Ql0h+rP48ckxlpbzKgwra6"
+          crossorigin="anonymous"
+        />
+        <script
+          src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.0-beta3/dist/js/bootstrap.bundle.min.js"
+          integrity="sha384-JEW9xMcG8R+pH31jmWH6WWP0WintQrMb4s7ZOdauHnUtxwoG2vI5DkLtS3qm9Ekf"
+          crossorigin="anonymous"
+        ></script>
+
+
+        <center>
+          <h1></h1>
+        </center>
+        <style type="text/css">
+
+             #mynetwork {
+                 width: 100%;
+                 height: 750px;
+                 background-color: #ffffff;
+                 border: 1px solid lightgray;
+                 position: relative;
+                 float: left;
+             }
+
+             
+
+             
+
+             
+        </style>
+    </head>
+
+
+    <body>
+        <div class="card" style="width: 100%">
+            
+            
+            <div id="mynetwork" class="card-body"></div>
+        </div>
+
+        
+        
+
+        <script type="text/javascript">
+
+              // initialize global variables.
+              var edges;
+              var nodes;
+              var allNodes;
+              var allEdges;
+              var nodeColors;
+              var originalNodes;
+              var network;
+              var container;
+              var options, data;
+              var filter = {
+                  item : '',
+                  property : '',
+                  value : []
+              };
+
+              
+
+              
+
+              // This method is responsible for drawing the graph, returns the drawn network
+              function drawGraph() {
+                  var container = document.getElementById('mynetwork');
+
+                  
+
+                  // parsing and collecting nodes and edges from the python
+                  nodes = new vis.DataSet([{"color": "#BEDAE4", "id": "external_step", "label": "external_step", "shape": "box"}, {"color": "#E27AFF", "id": "event:AgentWorkflowStartEvent#0", "label": "AgentWorkflowStartEvent", "shape": "ellipse"}, {"color": "#ADD8E6", "id": "step:init_run#1", "label": "init_run#1", "shape": "box"}, {"color": "#90EE90", "id": "event:AgentInput#1", "label": "AgentInput", "shape": "ellipse"}, {"color": "#ADD8E6", "id": "step:setup_agent#1", "label": "setup_agent#1", "shape": "box"}, {"color": "#90EE90", "id": "event:AgentSetup#2", "label": "AgentSetup", "shape": "ellipse"}, {"color": "#ADD8E6", "id": "step:run_agent_step#1", "label": "run_agent_step#1", "shape": "box"}, {"color": "#90EE90", "id": "event:AgentOutput#3", "label": "AgentOutput", "shape": "ellipse"}, {"color": "#90EE90", "id": "event:ToolCall#4", "label": "ToolCall", "shape": "ellipse"}, {"color": "#ADD8E6", "id": "step:parse_agent_output#1", "label": "parse_agent_output#1", "shape": "box"}, {"color": "#ADD8E6", "id": "step:call_tool#1", "label": "call_tool#1", "shape": "box"}, {"color": "#90EE90", "id": "event:ToolCallResult#5", "label": "ToolCallResult", "shape": "ellipse"}, {"color": "#ADD8E6", "id": "step:aggregate_tool_results#1", "label": "aggregate_tool_results#1", "shape": "box"}, {"color": "#90EE90", "id": "event:AgentInput#6", "label": "AgentInput", "shape": "ellipse"}, {"color": "#ADD8E6", "id": "step:setup_agent#2", "label": "setup_agent#2", "shape": "box"}, {"color": "#90EE90", "id": "event:AgentSetup#7", "label": "AgentSetup", "shape": "ellipse"}, {"color": "#ADD8E6", "id": "step:run_agent_step#2", "label": "run_agent_step#2", "shape": "box"}, {"color": "#90EE90", "id": "event:AgentOutput#8", "label": "AgentOutput", "shape": "ellipse"}, {"color": "#90EE90", "id": "event:ToolCall#9", "label": "ToolCall", "shape": "ellipse"}, {"color": "#ADD8E6", "id": "step:parse_agent_output#2", "label": "parse_agent_output#2", "shape": "box"}, {"color": "#90EE90", "id": "event:ToolCall#10", "label": "ToolCall", "shape": "ellipse"}, {"color": "#ADD8E6", "id": "step:call_tool#2", "label": "call_tool#2", "shape": "box"}, {"color": "#90EE90", "id": "event:ToolCallResult#11", "label": "ToolCallResult", "shape": "ellipse"}, {"color": "#ADD8E6", "id": "step:aggregate_tool_results#2", "label": "aggregate_tool_results#2", "shape": "box"}, {"color": "#ADD8E6", "id": "step:call_tool#3", "label": "call_tool#3", "shape": "box"}, {"color": "#90EE90", "id": "event:ToolCallResult#12", "label": "ToolCallResult", "shape": "ellipse"}, {"color": "#ADD8E6", "id": "step:aggregate_tool_results#3", "label": "aggregate_tool_results#3", "shape": "box"}, {"color": "#90EE90", "id": "event:AgentInput#13", "label": "AgentInput", "shape": "ellipse"}, {"color": "#ADD8E6", "id": "step:setup_agent#3", "label": "setup_agent#3", "shape": "box"}, {"color": "#90EE90", "id": "event:AgentSetup#14", "label": "AgentSetup", "shape": "ellipse"}, {"color": "#ADD8E6", "id": "step:run_agent_step#3", "label": "run_agent_step#3", "shape": "box"}, {"color": "#90EE90", "id": "event:AgentOutput#15", "label": "AgentOutput", "shape": "ellipse"}, {"color": "#ADD8E6", "id": "step:parse_agent_output#3", "label": "parse_agent_output#3", "shape": "box"}, {"color": "#FFA07A", "id": "event:StopEvent#16", "label": "StopEvent", "shape": "ellipse"}]);
+                  edges = new vis.DataSet([{"arrows": "to", "from": "external_step", "to": "event:AgentWorkflowStartEvent#0"}, {"arrows": "to", "from": "event:AgentWorkflowStartEvent#0", "to": "step:init_run#1"}, {"arrows": "to", "from": "step:init_run#1", "to": "event:AgentInput#1"}, {"arrows": "to", "from": "external_step", "to": "event:AgentInput#1"}, {"arrows": "to", "from": "event:AgentInput#1", "to": "step:setup_agent#1"}, {"arrows": "to", "from": "step:setup_agent#1", "to": "event:AgentSetup#2"}, {"arrows": "to", "from": "external_step", "to": "event:AgentSetup#2"}, {"arrows": "to", "from": "event:AgentSetup#2", "to": "step:run_agent_step#1"}, {"arrows": "to", "from": "step:run_agent_step#1", "to": "event:AgentOutput#3"}, {"arrows": "to", "from": "external_step", "to": "event:AgentOutput#3"}, {"arrows": "to", "from": "external_step", "to": "event:ToolCall#4"}, {"arrows": "to", "from": "event:AgentOutput#3", "to": "step:parse_agent_output#1"}, {"arrows": "to", "from": "event:ToolCall#4", "to": "step:call_tool#1"}, {"arrows": "to", "from": "step:call_tool#1", "to": "event:ToolCallResult#5"}, {"arrows": "to", "from": "external_step", "to": "event:ToolCallResult#5"}, {"arrows": "to", "from": "event:ToolCallResult#5", "to": "step:aggregate_tool_results#1"}, {"arrows": "to", "from": "step:aggregate_tool_results#1", "to": "event:AgentInput#6"}, {"arrows": "to", "from": "external_step", "to": "event:AgentInput#6"}, {"arrows": "to", "from": "event:AgentInput#6", "to": "step:setup_agent#2"}, {"arrows": "to", "from": "step:setup_agent#2", "to": "event:AgentSetup#7"}, {"arrows": "to", "from": "external_step", "to": "event:AgentSetup#7"}, {"arrows": "to", "from": "event:AgentSetup#7", "to": "step:run_agent_step#2"}, {"arrows": "to", "from": "step:run_agent_step#2", "to": "event:AgentOutput#8"}, {"arrows": "to", "from": "external_step", "to": "event:AgentOutput#8"}, {"arrows": "to", "from": "external_step", "to": "event:ToolCall#9"}, {"arrows": "to", "from": "event:AgentOutput#8", "to": "step:parse_agent_output#2"}, {"arrows": "to", "from": "external_step", "to": "event:ToolCall#10"}, {"arrows": "to", "from": "event:ToolCall#10", "to": "step:call_tool#2"}, {"arrows": "to", "from": "step:call_tool#2", "to": "event:ToolCallResult#11"}, {"arrows": "to", "from": "external_step", "to": "event:ToolCallResult#11"}, {"arrows": "to", "from": "event:ToolCallResult#11", "to": "step:aggregate_tool_results#2"}, {"arrows": "to", "from": "step:aggregate_tool_results#2", "to": "event:ToolCallResult#11"}, {"arrows": "to", "from": "event:ToolCall#9", "to": "step:call_tool#3"}, {"arrows": "to", "from": "step:call_tool#3", "to": "event:ToolCallResult#12"}, {"arrows": "to", "from": "external_step", "to": "event:ToolCallResult#12"}, {"arrows": "to", "from": "event:ToolCallResult#12", "to": "step:aggregate_tool_results#3"}, {"arrows": "to", "from": "step:aggregate_tool_results#3", "to": "event:AgentInput#13"}, {"arrows": "to", "from": "external_step", "to": "event:AgentInput#13"}, {"arrows": "to", "from": "event:AgentInput#13", "to": "step:setup_agent#3"}, {"arrows": "to", "from": "step:setup_agent#3", "to": "event:AgentSetup#14"}, {"arrows": "to", "from": "external_step", "to": "event:AgentSetup#14"}, {"arrows": "to", "from": "event:AgentSetup#14", "to": "step:run_agent_step#3"}, {"arrows": "to", "from": "step:run_agent_step#3", "to": "event:AgentOutput#15"}, {"arrows": "to", "from": "external_step", "to": "event:AgentOutput#15"}, {"arrows": "to", "from": "event:AgentOutput#15", "to": "step:parse_agent_output#3"}, {"arrows": "to", "from": "step:parse_agent_output#3", "to": "event:StopEvent#16"}]);
+
+                  nodeColors = {};
+                  allNodes = nodes.get({ returnType: "Object" });
+                  for (nodeId in allNodes) {
+                    nodeColors[nodeId] = allNodes[nodeId].color;
+                  }
+                  allEdges = edges.get({ returnType: "Object" });
+                  // adding nodes and edges to the graph
+                  data = {nodes: nodes, edges: edges};
+
+                  var options = {"layout": {"hierarchical": {"enabled": true, "direction": "LR", "nodeSpacing": 150, "levelSeparation": 120}}, "physics": {"enabled": false}};
+
+                  
+
+
+                  
+
+                  network = new vis.Network(container, data, options);
+
+                  
+
+                  
+
+                  
+
+
+                  
+
+                  return network;
+
+              }
+              drawGraph();
+        </script>
+    </body>
+</html>

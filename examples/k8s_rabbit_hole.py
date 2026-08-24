@@ -74,17 +74,23 @@ DIAGNOSIS_COMPLETE_MARKER = "DIAGNOSIS_COMPLETE"
 
 
 class DemoLlm(OpenAILike):
-    """OpenAILike that drops `temperature` and `tool_choice` — newer Claude
-    on Bedrock rejects `temperature`, and some LiteLLM/Bedrock proxies
-    reject the OpenAI-format `tool_choice` object outright because they
-    already set their own `toolConfig.toolChoice`. The parent class
-    forwards both by default. Self-contained so this example needs no
-    imports from the `app` package."""
+    """OpenAILike that strips fields this LiteLLM/Bedrock proxy rejects:
+    `temperature` (unsupported by newer Claude models), `tool_choice` (the
+    proxy already sets its own `toolConfig.toolChoice`), and the OpenAI
+    strict-mode tool fields `strict`/`additionalProperties` (rejected by
+    Bedrock's converse tool schema). Self-contained so this example needs
+    no imports from the `app` package."""
 
     def _get_model_kwargs(self, **kwargs: dict) -> dict:
         base = super()._get_model_kwargs(**kwargs)
         base.pop("temperature", None)
         base.pop("tool_choice", None)
+        for tool_spec in base.get("tools") or []:
+            fn = tool_spec.get("function", {})
+            fn.pop("strict", None)
+            params = fn.get("parameters")
+            if isinstance(params, dict):
+                params.pop("additionalProperties", None)
         return base
 
 

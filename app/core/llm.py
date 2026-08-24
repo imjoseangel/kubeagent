@@ -7,10 +7,14 @@ from app.core.config import settings
 
 
 class KubeAgentLlm(OpenAILike):
-    """OpenAILike variant that optionally drops `temperature` from requests.
+    """OpenAILike variant tuned for LiteLLM proxies fronting Bedrock Claude.
 
-    Newer Claude models on Bedrock reject `temperature` as an unsupported
-    parameter, so it is stripped by default.
+    Optionally drops `temperature` (newer Claude models reject it as
+    unsupported), and always drops `tool_choice` plus the OpenAI
+    strict-mode tool fields `strict`/`additionalProperties` — some
+    LiteLLM/Bedrock proxies reject the `tool_choice` object because they
+    already set their own `toolConfig.toolChoice`, and reject `strict` on
+    tool specs because Bedrock's converse tool schema has no such field.
     """
 
     enable_temperature: bool = Field(
@@ -26,6 +30,13 @@ class KubeAgentLlm(OpenAILike):
         base_kwargs = super()._get_model_kwargs(**kwargs)
         if not self.enable_temperature:
             base_kwargs.pop("temperature", None)
+        base_kwargs.pop("tool_choice", None)
+        for tool_spec in base_kwargs.get("tools") or []:
+            fn = tool_spec.get("function", {})
+            fn.pop("strict", None)
+            params = fn.get("parameters")
+            if isinstance(params, dict):
+                params.pop("additionalProperties", None)
         return base_kwargs
 
 
