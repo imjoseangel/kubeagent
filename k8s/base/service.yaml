@@ -7,5 +7,9 @@ spec:
   selector:
     app: kubeagent
   ports:
-    - port: 8000
-      targetPort: 8000
+    - name: http
+      port: 8000
+      targetPort: http
+    - name: health
+      port: 8001
+      targetPort: health

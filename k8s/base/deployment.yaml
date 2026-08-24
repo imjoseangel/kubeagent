@@ -12,6 +12,10 @@ spec:
     metadata:
       labels:
         app: kubeagent
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8001"
+        prometheus.io/path: "/metrics"
     spec:
       serviceAccountName: kubeagent-readonly
       automountServiceAccountToken: true
@@ -19,8 +23,10 @@ spec:
         - name: kubeagent
           image: kubeagent:latest
           ports:
-            - containerPort: 8000
-            - containerPort: 8001
+            - name: http
+              containerPort: 8000
+            - name: health
+              containerPort: 8001
           envFrom:
             - secretRef:
                 name: kubeagent-litellm
@@ -29,12 +35,12 @@ spec:
           readinessProbe:
             httpGet:
               path: /readyz
-              port: 8001
+              port: health
             initialDelaySeconds: 5
           livenessProbe:
             httpGet:
               path: /healthz
-              port: 8001
+              port: health
             initialDelaySeconds: 5
           resources:
             requests:

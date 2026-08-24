@@ -236,6 +236,15 @@ kubectl create configmap kubeagent-config -n kubeagent \
 Build and push the image referenced by `deployment.yaml`
 (`kubeagent:latest`) with the included multi-stage `Dockerfile`.
 
+The `kubeagent` Service exposes both the `http` port (`8000`, the API) and
+the `health` port (`8001`, `/healthz`/`/readyz`/`/metrics`) — kubelet
+probes hit the pod IP directly regardless, but the Service's `health`
+port lets an in-cluster Prometheus (or anything else) reach `/metrics`
+without going through the pod IP. The pod template also carries
+`prometheus.io/scrape`/`port`/`path` annotations for annotation-based
+Prometheus discovery; drop them (and the Service's `health` port) if your
+cluster uses a different discovery mechanism (e.g. a `ServiceMonitor`).
+
 Confirm the RBAC boundary:
 
 ```bash
