@@ -127,9 +127,16 @@ curl -X POST localhost:8000/diagnose/<id>/decisions \
 ```
 
 Poll `/diagnose/<id>` again for `status: completed` and a `result` in the
-`SYMPTOM / EVIDENCE / ROOT CAUSE / RECOMMENDED ACTION` format. Health
-checks live at `/healthz` and `/readyz`; a boilerplate-parity
-`/chat/completions` endpoint is also exposed for direct LLM chat.
+`SYMPTOM / EVIDENCE / ROOT CAUSE / RECOMMENDED ACTION` format.
+
+List all investigations (newest first) if you've lost an id:
+
+```bash
+curl localhost:8000/diagnose
+# [{"id": "...", "namespace": "staging", "status": "completed", "created_at": "..."}, ...]
+```
+
+Health checks live at `/healthz` and `/readyz`.
 
 ## Standalone example
 
@@ -185,10 +192,10 @@ kubectl auth can-i --as=system:serviceaccount:kubeagent:kubeagent-readonly delet
 
 ```
 app/
-├── main.py                 # FastAPI app: healthz/readyz, chat, diagnose
+├── main.py                 # FastAPI app: healthz/readyz, diagnose
 ├── schemas.py               # Pydantic request/response models
 ├── core/                    # settings + LLM client
-├── routers/                 # k8s_health, chat, diagnose
+├── routers/                 # k8s_health, diagnose
 ├── kube/                    # envelope, safety (read), mutate (write)
 ├── agents/                  # prompts, steer (hop budget), hitl (approval
 │                             gate), write_tools, troubleshooter (agent loop)

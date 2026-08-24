@@ -39,5 +39,12 @@ class InvestigationStore:
     def get(self, investigation_id: str) -> Investigation | None:
         return self._investigations.get(investigation_id)
 
+    def list_all(self) -> list[Investigation]:
+        return sorted(
+            self._investigations.values(),
+            key=lambda i: i.created_at,
+            reverse=True,
+        )
+
 
 store = InvestigationStore()

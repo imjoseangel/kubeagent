@@ -11,6 +11,18 @@ def teardown_function() -> None:
     approval_store._pending.clear()
 
 
+def test_list_diagnoses_returns_newest_first() -> None:
+    client = get_client()
+    older = store.create(namespace="staging")
+    newer = store.create(namespace="test")
+
+    response = client.get("/diagnose")
+
+    assert response.status_code == 200
+    ids = [item["id"] for item in response.json()]
+    assert ids == [newer.id, older.id]
+
+
 def test_start_diagnosis_rejects_namespace_outside_allowlist(
     monkeypatch,
 ) -> None:

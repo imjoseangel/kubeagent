@@ -1,11 +1,10 @@
 import uvicorn
 from fastapi import FastAPI
 
-from app.routers import chat, diagnose, k8s_health
+from app.routers import diagnose, k8s_health
 
 app = FastAPI(title="kubeagent")
 app.include_router(k8s_health.router)
-app.include_router(chat.router)
 app.include_router(diagnose.router)
 
 

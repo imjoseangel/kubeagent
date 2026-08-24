@@ -3,37 +3,6 @@ from enum import StrEnum
 from pydantic import BaseModel, Field
 
 
-class Role(StrEnum):
-    SYSTEM = "system"
-    USER = "user"
-    ASSISTANT = "assistant"
-
-
-class Message(BaseModel):
-    role: Role = Field(..., description="Role of the message author.")
-    content: str = Field(..., description="Message content.")
-
-
-class ChatCompletionRequest(BaseModel):
-    messages: list[Message] = Field(
-        ...,
-        description=("Conversation history. Must end with a `user` message."),
-    )
-    enable_temperature: bool = Field(
-        default=False,
-        description=(
-            "If True, forward `temperature` to the upstream model. "
-            "Enable only when the target model is known to accept it."
-        ),
-    )
-
-
-class ChatCompletionResponse(BaseModel):
-    model: str
-    content: str
-    role: str
-
-
 class InvestigationStatus(StrEnum):
     RUNNING = "running"
     AWAITING_APPROVAL = "awaiting_approval"
@@ -54,6 +23,13 @@ class DiagnoseRequest(BaseModel):
 class DiagnoseResponse(BaseModel):
     id: str
     status: InvestigationStatus
+
+
+class InvestigationSummary(BaseModel):
+    id: str
+    namespace: str
+    status: InvestigationStatus
+    created_at: str
 
 
 class PendingApprovalView(BaseModel):

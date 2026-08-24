@@ -11,10 +11,24 @@ from app.schemas import (
     DiagnoseRequest,
     DiagnoseResponse,
     InvestigationDetail,
+    InvestigationSummary,
     PendingApprovalView,
 )
 
 router = APIRouter(prefix="/diagnose", tags=["diagnose"])
+
+
+@router.get(path="", response_model=list[InvestigationSummary])
+async def list_diagnoses() -> list[InvestigationSummary]:
+    return [
+        InvestigationSummary(
+            id=investigation.id,
+            namespace=investigation.namespace,
+            status=investigation.status,
+            created_at=investigation.created_at,
+        )
+        for investigation in store.list_all()
+    ]
 
 
 @router.post(
