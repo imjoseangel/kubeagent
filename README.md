@@ -84,7 +84,9 @@ uv run mypy app examples
 | `KUBE_ALLOWED_NAMESPACES` | Comma-separated namespace allowlist. **Empty denies everything.** |
 | `KUBE_MAX_HOPS` | Hop budget before an investigation is forced to converge (default `8`). |
 | `APPROVAL_TIMEOUT_SECONDS` | How long a pending restart/rollback approval waits before it's treated as rejected (default `600`). |
-| `HEALTH_PORT` | Port for the dedicated `/healthz`/`/readyz` server (default `8001`). |
+| `HEALTH_PORT` | Port for the dedicated `/healthz`/`/readyz`/`/metrics` server (default `8001`). |
+| `HEARTBEAT_INTERVAL_SECONDS` | How often the main event loop stamps a heartbeat (default `2`). |
+| `HEALTH_STALE_SECONDS` | How long the heartbeat can go unrefreshed before `/healthz`/`/readyz` report the loop as stalled (default `10`). |
 
 ## API
 
@@ -137,26 +139,59 @@ curl localhost:8000/diagnose
 # [{"id": "...", "namespace": "staging", "status": "completed", "created_at": "..."}, ...]
 ```
 
-Health checks live at `/healthz` and `/readyz` on a separate port
-(`HEALTH_PORT`, default `8001`) — see [Health checks](#health-checks)
-below.
+Health checks and metrics live at `/healthz`, `/readyz` and `/metrics` on
+a separate port (`HEALTH_PORT`, default `8001`) — see
+[Health checks and metrics](#health-checks-and-metrics) below.
 
-## Health checks
+## Health checks and metrics
 
-`/healthz` and `/readyz` are served by a small stdlib `http.server`
-(`app/health_server.py`) running on its own thread and socket, on
-`HEALTH_PORT` (default `8001`) — not as FastAPI routes on the main app
-port. The main app runs on a single asyncio event loop; a long-running
-LLM call or (hypothetically) a blocking `kubectl` call there would stall
-every coroutine on that loop, including a health route defined on the same
-app. Answering probes from a separate thread/socket means they keep
-responding even if that ever happens, so Kubernetes doesn't restart a pod
-that's merely busy investigating.
+`/healthz`, `/readyz` and `/metrics` are served by a small stdlib
+`http.server` (`app/health_server.py`) running on its own thread and
+socket, on `HEALTH_PORT` (default `8001`) — not as FastAPI routes on the
+main app port. The main app runs on a single asyncio event loop; a
+long-running LLM call or (hypothetically) a blocking `kubectl` call there
+would stall every coroutine on that loop, including a health route
+defined on the same app. Answering probes from a separate thread/socket
+means the HTTP response itself never blocks behind that.
+
+That isolation alone isn't enough: a handler that always returns `200`
+would keep reporting healthy even if the main loop were genuinely stuck
+(deadlocked, or blocked by a bug), which is exactly the case a probe is
+supposed to catch. So the main app runs a periodic task
+(`HEARTBEAT_INTERVAL_SECONDS`, default every `2`s) that stamps a shared
+timestamp, and the health server checks it: if the last heartbeat is
+older than `HEALTH_STALE_SECONDS` (default `10`), `/healthz`/`/readyz`
+switch to `503`. A single legitimately long request doesn't trip this —
+`await` still yields control between steps, so the heartbeat keeps
+beating — but a truly stalled loop does, so Kubernetes can restart a pod
+that's actually stuck rather than one that's merely busy investigating.
 
 ```bash
 curl localhost:8001/healthz
 curl localhost:8001/readyz
 ```
+
+`/metrics` exposes the same heartbeat-age signal plus investigation
+counts by status, in Prometheus text exposition format — no
+`prometheus_client` dependency, hand-rolled to match this module's
+stdlib-only approach:
+
+```bash
+curl localhost:8001/metrics
+```
+
+```
+kubeagent_up 1
+kubeagent_event_loop_heartbeat_age_seconds 0.42
+kubeagent_investigations_total{status="running"} 1
+kubeagent_investigations_total{status="awaiting_approval"} 0
+kubeagent_investigations_total{status="completed"} 3
+kubeagent_investigations_total{status="failed"} 0
+```
+
+Unlike `/healthz`/`/readyz`, `/metrics` always returns `200` with the true
+current numbers, even while stale — it reports facts for
+Prometheus/alerting to act on, rather than encoding a restart verdict.
 
 ## Standalone example
 
@@ -212,10 +247,10 @@ kubectl auth can-i --as=system:serviceaccount:kubeagent:kubeagent-readonly delet
 
 ```
 app/
-├── main.py                 # FastAPI app: healthz/readyz, diagnose
+├── main.py                 # FastAPI app: diagnose, wires up the health server
 ├── schemas.py               # Pydantic request/response models
 ├── core/                    # settings + LLM client
-├── routers/                 # k8s_health, diagnose
+├── routers/                 # diagnose
 ├── kube/                    # envelope, safety (read), mutate (write)
 ├── agents/                  # prompts, steer (hop budget), hitl (approval
 │                             gate), write_tools, troubleshooter (agent loop)
