@@ -1,0 +1,17 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kubeagent-remediation
+  namespace: kubeagent
+subjects:
+  # Bound to the same ServiceAccount the Deployment runs as (there is only
+  # one pod identity available at runtime) — kept as a separate Role/
+  # RoleBinding so the narrow patch grant can be revoked independently of
+  # the broad read ClusterRoleBinding without touching either resource.
+  - kind: ServiceAccount
+    name: kubeagent-readonly
+    namespace: kubeagent
+roleRef:
+  kind: Role
+  name: kubeagent-remediation
+  apiGroup: rbac.authorization.k8s.io

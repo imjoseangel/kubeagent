@@ -1,0 +1,12 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: kubeagent
+resources:
+  - namespace.yaml
+  - serviceaccount-readonly.yaml
+  - clusterrole-readonly.yaml
+  - clusterrolebinding-readonly.yaml
+  - role-remediation.yaml
+  - rolebinding-remediation.yaml
+  - deployment.yaml
+  - service.yaml

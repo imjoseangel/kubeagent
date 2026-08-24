@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kubeagent
+  namespace: kubeagent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kubeagent
+  template:
+    metadata:
+      labels:
+        app: kubeagent
+    spec:
+      serviceAccountName: kubeagent-readonly
+      automountServiceAccountToken: true
+      containers:
+        - name: kubeagent
+          image: kubeagent:latest
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - secretRef:
+                name: kubeagent-litellm
+            - configMapRef:
+                name: kubeagent-config
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8000
+            initialDelaySeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
