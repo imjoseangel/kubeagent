@@ -72,6 +72,36 @@ def test_pods_table_empty() -> None:
     assert "No pods found" in format.pods_table([], NOW)
 
 
+def _pod_named(name: str) -> SimpleNamespace:
+    cs = SimpleNamespace(name="app", ready=True, restart_count=0, state=None)
+    return SimpleNamespace(
+        metadata=SimpleNamespace(
+            name=name, namespace="staging", creation_timestamp=NOW
+        ),
+        spec=SimpleNamespace(containers=[cs], node_name="node-1"),
+        status=SimpleNamespace(
+            phase="Running", pod_ip="10.1.2.3", container_statuses=[cs]
+        ),
+    )
+
+
+def test_pods_table_keeps_gutter_when_name_overflows_column() -> None:
+    # A 55-char name once collapsed the gap to zero (`...fcz7q1/1`); the
+    # dynamic column widths must still leave whitespace before READY.
+    long_name = "bts-bto-ai-mvp-icif-control-definition-6959b8b8db-fcz7q"
+    short_name = "web-1"
+    table = format.pods_table(
+        [_pod_named(long_name), _pod_named(short_name)], NOW
+    )
+    long_row = next(ln for ln in table.splitlines() if long_name in ln)
+    # The READY value ('1/1') never abuts the name — a gutter always survives.
+    assert f"{long_name}  " in long_row
+    assert f"{long_name}1/1" not in long_row
+    # Short and long rows align: READY starts at the same column in both.
+    header, *rows = table.splitlines()
+    assert all(row.index("1/1") == rows[0].index("1/1") for row in rows)
+
+
 def test_describe_pod_includes_events_and_containers() -> None:
     event = SimpleNamespace(
         last_timestamp=NOW - timedelta(minutes=1),

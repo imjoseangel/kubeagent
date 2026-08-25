@@ -2,6 +2,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
+from kubernetes.client.exceptions import ApiException
 
 from app.kube.mutate import kube_mutate
 from app.kube.safety import KubeAccessDenied
@@ -91,3 +92,17 @@ def test_undo_with_no_previous_revision_reports_failure() -> None:
 
     apps.patch_namespaced_deployment.assert_not_called()
     assert "no previous revision" in out
+
+
+def test_apiserver_failure_is_reported_not_raised() -> None:
+    apps = MagicMock()
+    apps.patch_namespaced_deployment.side_effect = ApiException(
+        status=409, reason="Conflict"
+    )
+    with patch("app.kube.mutate.client.apps_v1", return_value=apps):
+        out = kube_mutate("restart", "web", "kubeagent", ["kubeagent"])
+
+    # An apiserver error becomes tool output, not an exception that would
+    # crash the agent loop mid-remediation.
+    assert out.startswith("COMMAND FAILED")
+    assert "Conflict" in out
