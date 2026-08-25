@@ -2,8 +2,9 @@
 
 An autonomous Kubernetes troubleshooting agent built on
 [LlamaIndex](https://docs.llamaindex.ai/) `FunctionAgent`/`AgentWorkflow`
-(not LangGraph). It drives `kubectl` through a read-only diagnostic ladder
-— pods, then describe, then logs, then events, then rollout history — and
+(not LangGraph). It drives the Kubernetes API through a read-only diagnostic
+ladder — pods, then describe, then logs, then events, then rollout history —
+via the official `kubernetes` Python client (no `kubectl` binary), and
 reports a root cause. Two gated remediation tools (restart / rollback a
 Deployment) exist behind a human-approval step, so the agent can act, but
 never without an operator saying yes.
@@ -12,26 +13,33 @@ There are two ways to run it:
 
 - **Service** (`app/`) — a FastAPI microservice exposing `/diagnose` as a
   background job with a polling + approval API. Meant to run in-cluster.
-- **Standalone example** (`examples/k8s_rabbit_hole.py`) — a single
-  self-contained script with no service, no approval gate, and no write
-  tools at all. Point it at a namespace and it investigates unattended.
+- **Standalone example** (`examples/k8s_rabbit_hole.py`) — a single script
+  with no service, no approval gate, and no write tools at all; it reuses the
+  same read-only `app.kube.api` layer. Point it at a namespace and it
+  investigates unattended.
 
 ## Safety model
 
-- **Read path** (`app/kube/safety.py`, mirrored in the standalone example):
-  a hard verb allowlist (`get, describe, logs, top, events`), a hard
-  forbidden set (`delete, exec, edit, apply, patch, replace, cp, attach,
-  port-forward`), any argument containing `secret` refused outright, and a
-  namespace allowlist that fails closed — an empty `KUBE_ALLOWED_NAMESPACES`
-  denies every namespace. Every call runs via `subprocess.run(["kubectl",
-  *args], ...)` with a list argv — never a shell string, so there is no
-  injection surface.
-- **Write path** (`app/kube/mutate.py`) is not a generic kubectl
-  passthrough. Exactly two command shapes exist —
-  `rollout restart deployment/<name> -n <ns>` and
-  `rollout undo deployment/<name> -n <ns>` — and this function is only ever
-  reached from `app/agents/write_tools.py` *after* an operator approval
-  resolves. There is no code path that lets the LLM invoke it directly.
+All cluster access goes through the official `kubernetes` Python client
+talking to the apiserver over HTTPS — **no `kubectl` (or any other) binary is
+ever invoked**. Because every call is a typed API request (list pods, read
+logs, read/patch a deployment), there is no shell, no argv to escape, and no
+way to reach `secrets`, `exec`, or `portforward`: those endpoints are simply
+never called and are not granted by RBAC.
+
+- **Read path** (`app/kube/api.py` + `app/kube/read_tools.py`): the only
+  policy left to enforce in code is namespace scoping
+  (`app/kube/safety.py`), which fails closed — an empty
+  `KUBE_ALLOWED_NAMESPACES` denies every namespace. In-cluster config loads
+  from the mounted ServiceAccount token, falling back to the local kubeconfig
+  for development.
+- **Write path** (`app/kube/mutate.py`) is not a generic passthrough. Exactly
+  two operations exist — a rolling *restart* (a strategic-merge patch stamping
+  the `kubectl.kubernetes.io/restartedAt` annotation on the pod template) and
+  an *undo* (re-applying the previous revision's ReplicaSet pod template) —
+  and this function is only ever reached from `app/agents/write_tools.py`
+  *after* an operator approval resolves. There is no code path that lets the
+  LLM invoke it directly.
 - **Approval gate** (`app/agents/hitl.py`): LlamaIndex has no
   `HumanInTheLoopMiddleware`, so a small `ApprovalStore` fills the gap.
   A write tool calls `request()`, which hands back an `asyncio.Future`; the
@@ -87,7 +95,7 @@ uv run mypy app examples
 | `HEALTH_PORT` | Port for the dedicated `/healthz`/`/readyz`/`/metrics` server (default `8001`). |
 | `HEARTBEAT_INTERVAL_SECONDS` | How often the main event loop stamps a heartbeat (default `2`). |
 | `HEALTH_STALE_SECONDS` | How long the heartbeat can go unrefreshed before `/healthz`/`/readyz` report the loop as stalled (default `10`). |
-| `DEPENDENCY_CHECK_INTERVAL_SECONDS` | How often to re-check kubectl/LiteLLM reachability for `/readyz` and `/metrics` (default `15`). |
+| `DEPENDENCY_CHECK_INTERVAL_SECONDS` | How often to re-check Kubernetes-API/LiteLLM reachability for `/readyz` and `/metrics` (default `15`). |
 
 ## API
 
@@ -150,8 +158,8 @@ a separate port (`HEALTH_PORT`, default `8001`) — see
 `http.server` (`app/health_server.py`) running on its own thread and
 socket, on `HEALTH_PORT` (default `8001`) — not as FastAPI routes on the
 main app port. The main app runs on a single asyncio event loop; a
-long-running LLM call or (hypothetically) a blocking `kubectl` call there
-would stall every coroutine on that loop, including a health route
+long-running LLM call or (hypothetically) a blocking Kubernetes API call
+there would stall every coroutine on that loop, including a health route
 defined on the same app. Answering probes from a separate thread/socket
 means the HTTP response itself never blocks behind that.
 
@@ -174,8 +182,9 @@ different probes on purpose:
   process should be restarted; nothing else should ever flip this,
   because restarting a pod can't fix a problem that lives outside it.
 - **`/readyz` (readiness)** additionally reports the cached reachability
-  of this service's two hard dependencies — the Kubernetes API (via
-  `kubectl`, `app/core/dependency_checks.py`) and the LiteLLM endpoint —
+  of this service's two hard dependencies — the Kubernetes API (via the
+  client's `/version` probe, `app/core/dependency_checks.py`) and the LiteLLM
+  endpoint —
   checked on a periodic background task (`DEPENDENCY_CHECK_INTERVAL_SECONDS`,
   default `15`s) and served from cache, never a live call during the
   probe itself. If either is unreachable the agent can't do its job
@@ -196,7 +205,7 @@ curl localhost:8001/readyz
   "pod": "kubeagent-7f8c9d-abcde",
   "checks": {
     "loop": {"ok": true, "status": 200, "message": "event loop heartbeat fresh"},
-    "kubectl": {"ok": true, "status": 200, "message": "Kubernetes API reachable"},
+    "kube_api": {"ok": true, "status": 200, "message": "Kubernetes API reachable"},
     "llm": {"ok": true, "status": 200, "message": "LiteLLM endpoint reachable"}
   }
 }
@@ -214,7 +223,7 @@ curl localhost:8001/metrics
 ```
 kubeagent_up 1
 kubeagent_event_loop_heartbeat_age_seconds 0.42
-kubeagent_dependency_up{dependency="kubectl"} 1
+kubeagent_dependency_up{dependency="kube_api"} 1
 kubeagent_dependency_up{dependency="llm"} 1
 kubeagent_investigations_total{status="running"} 1
 kubeagent_investigations_total{status="awaiting_approval"} 0
@@ -228,9 +237,9 @@ Prometheus/alerting to act on, rather than encoding a restart verdict.
 
 ## Standalone example
 
-Fully autonomous, read-only, and self-contained — it imports nothing from
-`app`, builds its own LLM client and its own copy of the kubectl safety
-wrapper, and never mutates the cluster.
+Fully autonomous and read-only — it builds its own LLM client and reuses the
+service's read-only `app.kube.api` layer (the same direct-to-apiserver
+client, no `kubectl` binary), and never mutates the cluster.
 
 ```bash
 python -m examples.k8s_rabbit_hole staging

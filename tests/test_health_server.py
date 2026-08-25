@@ -28,7 +28,7 @@ def _all_ok_dependencies() -> DependencyStatus:
     dependencies = DependencyStatus()
     dependencies.update(
         [
-            CheckResult("kubectl", True, 200, "Kubernetes API reachable"),
+            CheckResult("kube_api", True, 200, "Kubernetes API reachable"),
             CheckResult("llm", True, 200, "LiteLLM endpoint reachable"),
         ]
     )
@@ -61,7 +61,7 @@ def test_healthz_and_readyz_report_ok_while_heartbeat_is_fresh() -> None:
         readyz = json.loads(readyz_body)
         assert readyz["status"] == "ready"
         assert readyz["checks"]["loop"]["ok"] is True
-        assert readyz["checks"]["kubectl"]["ok"] is True
+        assert readyz["checks"]["kube_api"]["ok"] is True
         assert readyz["checks"]["llm"]["ok"] is True
     finally:
         server.shutdown()
@@ -101,7 +101,7 @@ def test_readyz_reports_not_ready_when_a_dependency_is_down() -> None:
     dependencies = DependencyStatus()
     dependencies.update(
         [
-            CheckResult("kubectl", True, 200, "Kubernetes API reachable"),
+            CheckResult("kube_api", True, 200, "Kubernetes API reachable"),
             CheckResult("llm", False, 503, "connection refused"),
         ]
     )
@@ -124,7 +124,7 @@ def test_readyz_reports_not_ready_when_a_dependency_is_down() -> None:
         readyz = json.loads(readyz_body)
         assert readyz["status"] == "not_ready"
         assert readyz["checks"]["llm"]["ok"] is False
-        assert readyz["checks"]["kubectl"]["ok"] is True
+        assert readyz["checks"]["kube_api"]["ok"] is True
     finally:
         server.shutdown()
 
@@ -153,7 +153,7 @@ def test_metrics_reports_heartbeat_deps_and_investigation_counts() -> None:
         assert status == 200
         assert "kubeagent_up 1" in text
         assert "kubeagent_event_loop_heartbeat_age_seconds" in text
-        assert 'kubeagent_dependency_up{dependency="kubectl"} 1' in text
+        assert 'kubeagent_dependency_up{dependency="kube_api"} 1' in text
         assert 'kubeagent_dependency_up{dependency="llm"} 1' in text
         assert 'kubeagent_investigations_total{status="running"} 1' in text
         assert 'kubeagent_investigations_total{status="completed"} 1' in text

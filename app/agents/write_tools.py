@@ -7,8 +7,8 @@ from llama_index.core.tools import BaseTool, FunctionTool
 from app.agents.hitl import ApprovalStore
 from app.agents.steer import Trail
 from app.kube.envelope import envelope
-from app.kube.mutate import kubectl_mutate
-from app.kube.safety import KubectlDenied
+from app.kube.mutate import kube_mutate
+from app.kube.safety import KubeAccessDenied
 from app.persistence.store import InvestigationStore
 from app.schemas import InvestigationStatus
 
@@ -73,13 +73,13 @@ def make_write_tools(
 
         try:
             out = await asyncio.to_thread(
-                kubectl_mutate,
+                kube_mutate,
                 action,
                 deployment,
                 namespace,
                 allowed_namespaces,
             )
-        except KubectlDenied as exc:
+        except KubeAccessDenied as exc:
             return envelope(tool_name, "Denied.", {}, str(exc))
         return envelope(
             tool_name, out + note, {"deployment": deployment, "approved": True}

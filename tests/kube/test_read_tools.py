@@ -4,7 +4,6 @@ from llama_index.core.tools import FunctionTool
 
 from app.agents.steer import Trail
 from app.kube.read_tools import make_read_tools
-from app.kube.safety import KubectlDenied
 
 
 def _tool(tools: list[FunctionTool], name: str) -> FunctionTool:
@@ -12,12 +11,14 @@ def _tool(tools: list[FunctionTool], name: str) -> FunctionTool:
 
 
 async def test_get_pods_records_trail_and_returns_envelope() -> None:
-    # GIVEN a fresh trail and a kubectl call that succeeds
+    # GIVEN a fresh trail and an API call that succeeds
     trail = Trail(max_hops=8)
     tools = make_read_tools(trail, "staging", ["staging"])
 
     # WHEN get_pods is called
-    with patch("app.kube.read_tools.kubectl", return_value="pod-a  Running"):
+    with patch(
+        "app.kube.read_tools.api.list_pods", return_value="pod-a  Running"
+    ):
         output = await _tool(tools, "get_pods").acall()
 
     # THEN the envelope carries the output plus a steer note, and the step
@@ -36,14 +37,12 @@ async def test_get_pods_denied_returns_error_envelope_without_recording() -> (
     trail = Trail(max_hops=8)
     tools = make_read_tools(trail, "staging", ["other"])
 
-    # WHEN get_pods is called and kubectl denies it
-    with patch(
-        "app.kube.read_tools.kubectl",
-        side_effect=KubectlDenied("namespace 'staging' is not in scope"),
-    ):
+    # WHEN get_pods is called THEN the denial is surfaced by the namespace
+    # guard and no trail step is recorded — without ever hitting the API
+    with patch("app.kube.read_tools.api.list_pods") as mocked:
         output = await _tool(tools, "get_pods").acall()
 
-    # THEN the denial is surfaced and no trail step is recorded
+    mocked.assert_not_called()
     result = output.raw_output
     assert result["summary"] == "Denied."
     assert "not in scope" in result["error"]
@@ -55,32 +54,38 @@ async def test_describe_pod_passes_pod_argument_through() -> None:
     tools = make_read_tools(trail, "staging", ["staging"])
 
     with patch(
-        "app.kube.read_tools.kubectl", return_value="Events: OK"
+        "app.kube.read_tools.api.describe_pod", return_value="Events: OK"
     ) as mocked:
         output = await _tool(tools, "describe_pod").acall(pod="web-1")
 
-    mocked.assert_called_once_with(
-        ["describe", "pod", "web-1"], "staging", ["staging"]
-    )
+    mocked.assert_called_once_with("staging", "web-1")
     assert output.raw_output["parsed"] == {"pod": "web-1"}
 
 
-async def test_get_logs_adds_previous_and_container_flags() -> None:
+async def test_get_logs_passes_previous_and_container_through() -> None:
     trail = Trail(max_hops=8)
     tools = make_read_tools(trail, "staging", ["staging"])
 
     with patch(
-        "app.kube.read_tools.kubectl", return_value="log line"
+        "app.kube.read_tools.api.pod_logs", return_value="log line"
     ) as mocked:
         await _tool(tools, "get_logs").acall(
             pod="web-1", previous=True, container="app"
         )
 
-    mocked.assert_called_once_with(
-        ["logs", "web-1", "--tail=200", "--previous", "-c", "app"],
-        "staging",
-        ["staging"],
-    )
+    mocked.assert_called_once_with("staging", "web-1", True, "app")
+
+
+async def test_get_rollout_history_passes_deployment_through() -> None:
+    trail = Trail(max_hops=8)
+    tools = make_read_tools(trail, "staging", ["staging"])
+
+    with patch(
+        "app.kube.read_tools.api.deployment_detail", return_value="{}"
+    ) as mocked:
+        await _tool(tools, "get_rollout_history").acall(deployment="web")
+
+    mocked.assert_called_once_with("staging", "web")
 
 
 async def test_repeated_call_triggers_loop_steer() -> None:
@@ -88,7 +93,7 @@ async def test_repeated_call_triggers_loop_steer() -> None:
     tools = make_read_tools(trail, "staging", ["staging"])
     tool = _tool(tools, "get_pods")
 
-    with patch("app.kube.read_tools.kubectl", return_value="ok"):
+    with patch("app.kube.read_tools.api.list_pods", return_value="ok"):
         await tool.acall()
         second = await tool.acall()
 

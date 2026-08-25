@@ -183,13 +183,13 @@ def start_health_server(
 
     This runs on its own OS thread with its own listening socket, entirely
     outside the FastAPI app's asyncio event loop — so probes and metrics
-    scrapes keep getting answered even if a long-running LLM or kubectl
-    call were ever to stall that event loop.
+    scrapes keep getting answered even if a long-running LLM or Kubernetes
+    API call were ever to stall that event loop.
 
     `/healthz` (liveness) only reflects the loop's own heartbeat: a truly
     stalled loop should get the pod restarted, but an unreachable external
     dependency should not, since restarting fixes nothing there.
-    `/readyz` (readiness) additionally reports the cached kubectl/LLM
+    `/readyz` (readiness) additionally reports the cached Kubernetes-API/LLM
     reachability checks (`app/core/dependency_checks.py`) — if either is
     down, the pod can't do its job right now and should be pulled out of
     rotation without being killed.

@@ -1,57 +1,31 @@
-import subprocess
+"""Access policy for cluster calls.
 
-# Read verbs only. Nothing reachable through this function can mutate
-# cluster state — mutation goes through the separate, far narrower
-# app/kube/mutate.py path instead.
-ALLOWED_VERBS = {"get", "describe", "logs", "top", "events"}
-FORBIDDEN = {
-    "delete",
-    "exec",
-    "edit",
-    "apply",
-    "patch",
-    "replace",
-    "cp",
-    "attach",
-    "port-forward",
-}
+With the move to the typed Kubernetes API client, most of the old
+string-parsing safety surface disappears: the read path only ever calls
+pod/deployment/event/log endpoints, so there is no verb to allow-list, no
+`secrets` request to intercept, and no shell to escape. The one policy that
+still matters is namespace scoping — kubeagent must never touch a namespace
+outside its configured allowlist — so that is what this module enforces.
+
+Mutation lives behind an entirely separate, far narrower path
+(`app/kube/mutate.py`) and is additionally gated on human approval.
+"""
 
 
-class KubectlDenied(Exception):
-    """Raised when a call falls outside the permitted read-only surface."""
+class KubeAccessDenied(Exception):
+    """Raised when a call falls outside kubeagent's permitted scope."""
 
 
-def kubectl(
-    args: list[str],
-    namespace: str | None,
-    allowed_namespaces: list[str],
-    timeout: int = 20,
-) -> str:
-    """Run one read-only kubectl command and return truncated stdout.
+def ensure_namespace_allowed(
+    namespace: str | None, allowed_namespaces: list[str]
+) -> None:
+    """Fail closed unless `namespace` is in the configured allowlist.
 
-    `allowed_namespaces` is passed in explicitly (rather than read from
-    global settings) so this function stays easy to unit test and so the
-    standalone example script can reuse the same logic without importing
-    from `app`.
+    An empty allowlist means no namespace is reachable. `allowed_namespaces`
+    is passed in explicitly (rather than read from global settings) so this
+    stays trivially unit-testable and the standalone example can reuse it.
     """
-    if not args or args[0] not in ALLOWED_VERBS:
-        raise KubectlDenied(
-            f"verb '{args[0] if args else ''}' is not permitted"
-        )
-    if FORBIDDEN & set(args):
-        raise KubectlDenied("forbidden operation in arguments")
-    if any("secret" in a.lower() for a in args):
-        raise KubectlDenied("secrets are out of scope for this agent")
-
-    cmd = ["kubectl", *args]
-    if namespace:
-        if namespace not in allowed_namespaces:
-            raise KubectlDenied(f"namespace '{namespace}' is not in scope")
-        cmd += ["-n", namespace]
-
-    result = subprocess.run(
-        cmd, capture_output=True, text=True, timeout=timeout, check=False
-    )
-    if result.returncode != 0:
-        return f"COMMAND FAILED: {result.stderr.strip()[:600]}"
-    return result.stdout[:6000]
+    if namespace is None:
+        return
+    if namespace not in allowed_namespaces:
+        raise KubeAccessDenied(f"namespace '{namespace}' is not in scope")

@@ -1,10 +1,11 @@
 import asyncio
-import subprocess
 from dataclasses import dataclass
 
 import httpx
+from kubernetes.client.exceptions import ApiException
 
 from app.core.config import settings
+from app.kube import client
 
 
 @dataclass
@@ -15,33 +16,29 @@ class CheckResult:
     message: str
 
 
-async def check_kubectl() -> CheckResult:
+async def check_kube_api() -> CheckResult:
     """Verify the Kubernetes API is reachable.
 
-    Hits `/version`, which every cluster's default bootstrap RBAC
-    (`system:discovery`) grants to any authenticated caller — this proves
-    apiserver reachability without depending on kubeagent's own
-    read/write RBAC grants.
+    Hits `/version` via the client's `VersionApi`, which every cluster's
+    default bootstrap RBAC (`system:discovery`) grants to any authenticated
+    caller — this proves apiserver reachability without depending on
+    kubeagent's own read/write RBAC grants, and needs no `kubectl` binary.
     """
 
-    def _run() -> subprocess.CompletedProcess[str]:
-        return subprocess.run(
-            ["kubectl", "get", "--raw", "/version", "--request-timeout=3s"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            check=False,
-        )
+    def _run() -> str:
+        return client.version_api().get_code().git_version
 
     try:
-        result = await asyncio.to_thread(_run)
-    except (OSError, subprocess.SubprocessError) as exc:
-        return CheckResult("kubectl", False, 503, str(exc)[:200])
+        version = await asyncio.to_thread(_run)
+    except ApiException as exc:
+        return CheckResult(
+            "kube_api", False, exc.status or 503, (exc.reason or "")[:200]
+        )
+    except Exception as exc:  # noqa: BLE001 - report any connectivity failure
+        return CheckResult("kube_api", False, 503, str(exc)[:200])
 
-    if result.returncode == 0:
-        return CheckResult("kubectl", True, 200, "Kubernetes API reachable")
     return CheckResult(
-        "kubectl", False, 503, result.stderr.strip()[:200] or "unknown error"
+        "kube_api", True, 200, f"Kubernetes API reachable ({version})"
     )
 
 

@@ -1,39 +1,46 @@
-import subprocess
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
+from kubernetes.client.exceptions import ApiException
 
-from app.core.dependency_checks import check_kubectl, check_llm
+from app.core.dependency_checks import check_kube_api, check_llm
 
 
-async def test_check_kubectl_ok_when_command_succeeds() -> None:
-    completed = subprocess.CompletedProcess(
-        args=["kubectl"], returncode=0, stdout="", stderr=""
-    )
-    with patch("subprocess.run", return_value=completed):
-        result = await check_kubectl()
+async def test_check_kube_api_ok_when_version_returns() -> None:
+    version_api = MagicMock()
+    version_api.get_code.return_value = MagicMock(git_version="v1.29.0")
 
-    assert result.name == "kubectl"
+    with patch(
+        "app.core.dependency_checks.client.version_api",
+        return_value=version_api,
+    ):
+        result = await check_kube_api()
+
+    assert result.name == "kube_api"
     assert result.ok is True
     assert result.status_code == 200
+    assert "v1.29.0" in result.message
 
 
-async def test_check_kubectl_fails_on_non_zero_exit() -> None:
-    completed = subprocess.CompletedProcess(
-        args=["kubectl"], returncode=1, stdout="", stderr="Unauthorized"
-    )
-    with patch("subprocess.run", return_value=completed):
-        result = await check_kubectl()
+async def test_check_kube_api_fails_on_api_exception() -> None:
+    with patch(
+        "app.core.dependency_checks.client.version_api",
+        side_effect=ApiException(status=401, reason="Unauthorized"),
+    ):
+        result = await check_kube_api()
 
-    assert result.name == "kubectl"
+    assert result.name == "kube_api"
     assert result.ok is False
-    assert result.status_code == 503
+    assert result.status_code == 401
     assert "Unauthorized" in result.message
 
 
-async def test_check_kubectl_fails_when_binary_missing() -> None:
-    with patch("subprocess.run", side_effect=OSError("kubectl not found")):
-        result = await check_kubectl()
+async def test_check_kube_api_fails_on_connection_error() -> None:
+    with patch(
+        "app.core.dependency_checks.client.version_api",
+        side_effect=OSError("connection refused"),
+    ):
+        result = await check_kube_api()
 
     assert result.ok is False
     assert result.status_code == 503

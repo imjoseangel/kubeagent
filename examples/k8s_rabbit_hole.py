@@ -2,8 +2,8 @@
 
 Autonomous ``FunctionAgent`` that loops ``observe -> pick tool -> run ->
 observe`` until it emits a terminal prose marker. The toolset is five
-read-only ``kubectl`` calls against one namespace, and the wiki-rabbit-hole
-example's ``WEIRD_ENOUGH`` becomes ``DIAGNOSIS_COMPLETE``.
+read-only Kubernetes API calls against one namespace, and the
+wiki-rabbit-hole example's ``WEIRD_ENOUGH`` becomes ``DIAGNOSIS_COMPLETE``.
 
     k8s_list_unhealthy(namespace)      every pod, newest restart counts
                                         first
@@ -20,11 +20,11 @@ looks most likely to explain a failure, and stops once it has evidence
 strong enough to name a root cause — reporting the diagnostic trail it took
 to get there.
 
-Tools return the project's ``{tool, summary, parsed, error}`` envelope. This
-file is fully standalone: it builds its own LLM client straight from the
-``LITELLM_*`` block in your ``.env`` (or the defaults below), and its own
-copy of the read-only kubectl safety wrapper — no imports from ``app``, so
-it runs with just this repo's dependencies and a working ``kubectl`` context.
+Tools return the project's ``{tool, summary, parsed, error}`` envelope. Cluster
+access goes straight through the official ``kubernetes`` client (the same
+read-only ``app.kube.api`` layer the service uses) — no ``kubectl`` or any
+other binary is invoked. It builds its own LLM client straight from the
+``LITELLM_*`` block in your ``.env`` (or the defaults below).
 
     LITELLM_API_BASE      proxy URL
     LITELLM_API_KEY       proxy key
@@ -37,16 +37,16 @@ Run it:
     python -m examples.k8s_rabbit_hole staging "focus on payments"
     python -m examples.k8s_rabbit_hole staging --max-hops 12
 
-It talks to whatever cluster your current ``kubectl`` context points at. It
-never deletes, execs, edits, applies, patches, or otherwise mutates
-anything — there is no write path in this file at all.
+It talks to whatever cluster your kube config points at (in-cluster token if
+present, otherwise your local kubeconfig). It never deletes, execs, edits,
+applies, patches, or otherwise mutates anything — it only calls read
+endpoints, so there is no write path in this file at all.
 """
 
 import argparse
 import asyncio
 import logging
 import os
-import subprocess
 from collections.abc import Callable
 from typing import Any
 
@@ -66,6 +66,8 @@ from llama_index.utils.workflow import (
     draw_most_recent_execution,
 )
 
+from app.kube import api
+
 logging.basicConfig(level=logging.INFO)
 
 load_dotenv()
@@ -78,8 +80,7 @@ class DemoLlm(OpenAILike):
     `temperature` (unsupported by newer Claude models), `tool_choice` (the
     proxy already sets its own `toolConfig.toolChoice`), and the OpenAI
     strict-mode tool fields `strict`/`additionalProperties` (rejected by
-    Bedrock's converse tool schema). Self-contained so this example needs
-    no imports from the `app` package."""
+    Bedrock's converse tool schema)."""
 
     def _get_model_kwargs(self, **kwargs: dict) -> dict:
         base = super()._get_model_kwargs(**kwargs)
@@ -107,46 +108,6 @@ def demo_llm() -> DemoLlm:
         max_retries=int(os.getenv("LITELLM_MAX_RETRIES", "2")),
         context_window=200_000,
     )
-
-
-# --- read-only kubectl safety wrapper (self-contained copy of
-# app/kube/safety.py) ---
-
-ALLOWED_VERBS = {"get", "describe", "logs", "top", "events"}
-FORBIDDEN = {
-    "delete",
-    "exec",
-    "edit",
-    "apply",
-    "patch",
-    "replace",
-    "cp",
-    "attach",
-    "port-forward",
-}
-
-
-class KubectlDenied(Exception):
-    """Raised when a call falls outside the permitted read-only surface."""
-
-
-def kubectl(args: list[str], timeout: int = 20) -> str:
-    """Run one read-only kubectl command and return truncated stdout."""
-    if not args or args[0] not in ALLOWED_VERBS:
-        raise KubectlDenied(
-            f"verb '{args[0] if args else ''}' is not permitted"
-        )
-    if FORBIDDEN & set(args):
-        raise KubectlDenied("forbidden operation in arguments")
-    if any("secret" in a.lower() for a in args):
-        raise KubectlDenied("secrets are out of scope for this agent")
-
-    result = subprocess.run(
-        ["kubectl", *args], capture_output=True, text=True, timeout=timeout
-    )
-    if result.returncode != 0:
-        return f"COMMAND FAILED: {result.stderr.strip()[:600]}"
-    return result.stdout[:6000]
 
 
 def _envelope(
@@ -199,10 +160,7 @@ def k8s_list_unhealthy() -> dict:
     age. Start every investigation here to identify which pod is
     unhealthy."""
     _trail.clear()
-    try:
-        out = kubectl(["get", "pods", "-n", _NAMESPACE, "-o", "wide"])
-    except KubectlDenied as exc:
-        return _envelope("k8s_list_unhealthy", "Denied.", {}, str(exc))
+    out = api.list_pods(_NAMESPACE)
     return _envelope(
         "k8s_list_unhealthy",
         out + _steer("k8s_list_unhealthy"),
@@ -214,10 +172,7 @@ def k8s_describe(pod: str) -> dict:
     """Show a pod's full detail including its Events, container exit
     codes, resource limits, and probe configuration. Use this second — the
     Events section names most failure causes directly."""
-    try:
-        out = kubectl(["describe", "pod", pod, "-n", _NAMESPACE])
-    except KubectlDenied as exc:
-        return _envelope("k8s_describe", "Denied.", {}, str(exc))
+    out = api.describe_pod(_NAMESPACE, pod)
     return _envelope(
         "k8s_describe", out + _steer(f"k8s_describe:{pod}"), {"pod": pod}
     )
@@ -229,15 +184,7 @@ def k8s_logs(
     """Fetch the last 200 log lines from a pod. Set previous=True to read
     the logs of a container that already crashed, which is required for
     CrashLoopBackOff and OOMKilled investigations."""
-    args = ["logs", pod, "-n", _NAMESPACE, "--tail=200"]
-    if previous:
-        args.append("--previous")
-    if container:
-        args += ["-c", container]
-    try:
-        out = kubectl(args)
-    except KubectlDenied as exc:
-        return _envelope("k8s_logs", "Denied.", {}, str(exc))
+    out = api.pod_logs(_NAMESPACE, pod, previous, container)
     return _envelope(
         "k8s_logs",
         out + _steer(f"k8s_logs:{pod}:previous={previous}"),
@@ -248,12 +195,7 @@ def k8s_logs(
 def k8s_events() -> dict:
     """List recent namespace events, newest last. Use this for scheduling
     failures, image pull errors, and volume mount problems."""
-    try:
-        out = kubectl(
-            ["get", "events", "-n", _NAMESPACE, "--sort-by=.lastTimestamp"]
-        )
-    except KubectlDenied as exc:
-        return _envelope("k8s_events", "Denied.", {}, str(exc))
+    out = api.list_events(_NAMESPACE)
     return _envelope(
         "k8s_events", out + _steer("k8s_events"), {"namespace": _NAMESPACE}
     )
@@ -263,15 +205,10 @@ def k8s_rollout_history(deployment: str) -> dict:
     """Show revision history for a deployment. Use this when a workload
     was previously healthy and the failure looks like it followed a
     change."""
-    try:
-        out = kubectl(
-            ["get", "deployment", deployment, "-n", _NAMESPACE, "-o", "json"]
-        )
-    except KubectlDenied as exc:
-        return _envelope("k8s_rollout_history", "Denied.", {}, str(exc))
+    out = api.deployment_detail(_NAMESPACE, deployment)
     return _envelope(
         "k8s_rollout_history",
-        out[:4000] + _steer(f"k8s_rollout_history:{deployment}"),
+        out + _steer(f"k8s_rollout_history:{deployment}"),
         {"deployment": deployment},
     )
 

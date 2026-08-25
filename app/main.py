@@ -7,7 +7,7 @@ import uvicorn
 from fastapi import FastAPI
 
 from app.core.config import settings
-from app.core.dependency_checks import check_kubectl, check_llm
+from app.core.dependency_checks import check_kube_api, check_llm
 from app.health_server import DependencyStatus, Heartbeat, start_health_server
 from app.persistence.store import store
 from app.routers import diagnose
@@ -20,7 +20,7 @@ async def _beat_forever(heartbeat: Heartbeat) -> None:
 
 
 async def _check_dependencies(status_cache: DependencyStatus) -> None:
-    results = await asyncio.gather(check_kubectl(), check_llm())
+    results = await asyncio.gather(check_kube_api(), check_llm())
     status_cache.update(list(results))
 
 
