@@ -74,6 +74,28 @@ def test_undo_rolls_back_to_previous_revision() -> None:
     assert "revision 2" in out
 
 
+def test_undo_does_not_mutate_the_fetched_replicaset() -> None:
+    apps = MagicMock()
+    dep = SimpleNamespace(
+        metadata=SimpleNamespace(
+            uid="dep-uid",
+            annotations={"deployment.kubernetes.io/revision": "3"},
+        )
+    )
+    apps.read_namespaced_deployment.return_value = dep
+    previous = _replicaset("dep-uid", "2")
+    apps.list_namespaced_replica_set.return_value = SimpleNamespace(
+        items=[previous, _replicaset("dep-uid", "3")]
+    )
+
+    with patch("app.kube.mutate.client.apps_v1", return_value=apps):
+        kube_mutate("undo", "web", "kubeagent", ["kubeagent"])
+
+    # The patch strips the hash from a copy; the source object keeps it, so a
+    # failed patch can't leave cached cluster state half-modified.
+    assert previous.spec.template.metadata.labels["pod-template-hash"] == "abc"
+
+
 def test_undo_with_no_previous_revision_reports_failure() -> None:
     apps = MagicMock()
     dep = SimpleNamespace(

@@ -115,7 +115,7 @@ def deployment_detail(namespace: str, deployment: str) -> str:
     if isinstance(dep, str):
         return dep
 
-    api = client.core_v1().api_client
+    api = client.apps_v1().api_client
     dep_dict = api.sanitize_for_serialization(dep)
     revisions = _revision_history(namespace, dep)
 

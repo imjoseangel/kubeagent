@@ -9,6 +9,7 @@ Both operations are expressed as native apiserver requests (a strategic-merge
 patch and a revision replace), so no `kubectl rollout` binary is involved.
 """
 
+import copy
 from datetime import UTC, datetime
 from typing import Any
 
@@ -94,9 +95,11 @@ def _undo(deployment: str, namespace: str) -> str:
         )
     target = max(previous, key=revision)
 
-    template = target.spec.template
-    # Drop the pod-template-hash the ReplicaSet controller injects; the
-    # deployment controller recomputes it for the new revision.
+    # Copy the template before stripping the ReplicaSet-controller-injected
+    # pod-template-hash, so a failed patch never leaves the fetched
+    # ReplicaSet object with half-mutated labels. The deployment controller
+    # recomputes the hash for the new revision.
+    template = copy.deepcopy(target.spec.template)
     if template.metadata and template.metadata.labels:
         template.metadata.labels.pop("pod-template-hash", None)
 
