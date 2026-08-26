@@ -3,6 +3,8 @@ from llama_index.core.agent.workflow import (
     AgentWorkflow,
     FunctionAgent,
 )
+from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
 
 from app.agents.hitl import approval_store
 from app.agents.prompts import SYSTEM_PROMPT
@@ -13,6 +15,10 @@ from app.core.llm import build_llm
 from app.kube.read_tools import make_read_tools
 from app.persistence.store import store
 from app.schemas import InvestigationStatus
+
+# No-op tracer when telemetry is disabled (no provider registered), so the
+# investigation span below is always safe to open. See app/core/telemetry.py.
+_tracer = trace.get_tracer("kubeagent.agent")
 
 
 def build_agent(investigation_id: str, namespace: str) -> FunctionAgent:
@@ -58,23 +64,37 @@ async def run_investigation(
     if focus:
         user_msg += f" Focus hint from the operator: {focus}"
 
-    try:
-        agent = build_agent(investigation_id, namespace)
-        workflow = AgentWorkflow(agents=[agent], root_agent="Troubleshooter")
-        handler = workflow.run(user_msg=user_msg, max_iterations=40)
+    with _tracer.start_as_current_span("investigation") as span:
+        span.set_attribute("investigation.id", investigation_id)
+        span.set_attribute("kube.namespace", namespace)
+        if focus:
+            span.set_attribute("investigation.focus", focus)
+        try:
+            agent = build_agent(investigation_id, namespace)
+            workflow = AgentWorkflow(
+                agents=[agent], root_agent="Troubleshooter"
+            )
+            handler = workflow.run(user_msg=user_msg, max_iterations=40)
 
-        final_content = ""
-        async for ev in handler.stream_events():
-            if (
-                isinstance(ev, AgentOutput)
-                and ev.response
-                and ev.response.content
-            ):
-                final_content = ev.response.content
-        await handler
+            final_content = ""
+            async for ev in handler.stream_events():
+                if (
+                    isinstance(ev, AgentOutput)
+                    and ev.response
+                    and ev.response.content
+                ):
+                    final_content = ev.response.content
+            await handler
 
-        investigation.result = final_content
-        investigation.status = InvestigationStatus.COMPLETED
-    except Exception as exc:  # noqa: BLE001 - surface any failure on the investigation
-        investigation.status = InvestigationStatus.FAILED
-        investigation.error = str(exc)[:600]
+            investigation.result = final_content
+            investigation.status = InvestigationStatus.COMPLETED
+        except Exception as exc:  # noqa: BLE001 - surface any failure on the investigation
+            investigation.status = InvestigationStatus.FAILED
+            investigation.error = str(exc)[:600]
+            span.record_exception(exc)
+            span.set_status(Status(StatusCode.ERROR, str(exc)[:600]))
+        finally:
+            span.set_attribute("investigation.hops", len(investigation.trail))
+            span.set_attribute(
+                "investigation.status", investigation.status.value
+            )

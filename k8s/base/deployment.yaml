@@ -32,6 +32,17 @@ spec:
                 name: kubeagent-litellm
             - configMapRef:
                 name: kubeagent-config
+          env:
+            # OpenTelemetry distributed tracing. DISABLED by default: an empty
+            # endpoint makes app/core/telemetry.py a no-op. To enable, point
+            # this at an OTLP/HTTP collector (the exporter appends /v1/traces)
+            # — use the same collector as the upstream model service so their
+            # spans join, e.g.
+            #   value: "http://otel-collector.observability.svc:4318"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: ""
+            - name: OTEL_SERVICE_NAME
+              value: "kubeagent"
           readinessProbe:
             httpGet:
               path: /readyz

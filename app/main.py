@@ -8,6 +8,7 @@ from fastapi import FastAPI
 
 from app.core.config import settings
 from app.core.dependency_checks import check_kube_api, check_llm
+from app.core.telemetry import setup_telemetry
 from app.health_server import DependencyStatus, Heartbeat, start_health_server
 from app.persistence.store import store
 from app.routers import diagnose
@@ -60,6 +61,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="kubeagent", lifespan=lifespan)
+setup_telemetry(app)
 app.include_router(diagnose.router)
 
 

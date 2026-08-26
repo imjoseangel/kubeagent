@@ -40,6 +40,15 @@ class Settings(BaseSettings):
         os.getenv("DEPENDENCY_CHECK_INTERVAL_SECONDS", "15")
     )
 
+    # OpenTelemetry distributed tracing. Opt-in: tracing is only wired up
+    # when an OTLP collector endpoint is set, so tests and local runs stay
+    # a no-op. The exporter itself reads OTEL_EXPORTER_OTLP_ENDPOINT (and
+    # any OTEL_EXPORTER_OTLP_HEADERS) directly from the environment.
+    otel_exporter_otlp_endpoint: str = os.getenv(
+        "OTEL_EXPORTER_OTLP_ENDPOINT", ""
+    )
+    otel_service_name: str = os.getenv("OTEL_SERVICE_NAME", "kubeagent")
+
     @field_validator("kube_allowed_namespaces", mode="before")
     @classmethod
     def _parse_allowed_namespaces(cls, value: str | list[str]) -> list[str]:

@@ -294,6 +294,20 @@ kubectl auth can-i --as=system:serviceaccount:kubeagent:kubeagent-readonly delet
 # no
 ```
 
+### Distributed tracing (OpenTelemetry)
+
+Tracing is **opt-in and disabled by default**. With no
+`OTEL_EXPORTER_OTLP_ENDPOINT` set, `app/core/telemetry.py` is a no-op.
+Point it at an OTLP/HTTP collector to trace each investigation end to end —
+the inbound request, the background agent workflow (one `investigation`
+span carrying `kube.namespace`, `investigation.hops`, and status), and the
+outbound LLM calls to LiteLLM (auto-instrumented over httpx). W3C trace
+context is propagated on the LiteLLM hop, so if the upstream model service
+exports to the same collector the spans join one trace. See
+`k8s/examples/llama-stack-tracing.yaml` for the Llama Stack / LiteLLM side
+(also disabled by default). Following
+[Red Hat's distributed-tracing-for-agentic-workflows guide](https://developers.redhat.com/articles/2026/04/06/distributed-tracing-agentic-workflows-opentelemetry).
+
 ## Project layout
 
 ```

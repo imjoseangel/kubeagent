@@ -1,0 +1,60 @@
+# Reference: OpenTelemetry tracing for the upstream Llama Stack / LiteLLM
+# model service.
+#
+# kubeagent talks to this service as an EXTERNAL endpoint (LITELLM_API_BASE),
+# so its Deployment does NOT live in this repo and this file is intentionally
+# NOT part of k8s/base/kustomization.yaml — nothing here is applied by
+# `kubectl apply -k k8s/base`. Copy the env vars below into wherever your
+# Llama Stack / LiteLLM service is actually defined.
+#
+# Tracing is DISABLED by default: OTEL_EXPORTER_OTLP_ENDPOINT is empty and
+# TELEMETRY_SINKS omits `otel_trace`, so spans go nowhere off-box. To turn it
+# on, set the endpoint to the same collector kubeagent uses and add
+# `otel_trace` to the sinks (see the commented "enabled" values). Only then do
+# the model service's spans join kubeagent's trace for the same investigation.
+#
+# Ref: https://developers.redhat.com/articles/2026/04/06/distributed-tracing-agentic-workflows-opentelemetry
+
+# ---------------------------------------------------------------------------
+# Llama Stack 0.3.x — configured entirely via environment variables.
+# Merge this `env:` block into the model service's container spec.
+# ---------------------------------------------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llama-stack
+  namespace: llama-stack
+spec:
+  template:
+    spec:
+      containers:
+        - name: llama-stack
+          env:
+            # DISABLED by default — empty endpoint means no OTLP export.
+            # To enable, point this at the shared collector, e.g.
+            #   value: "http://otel-collector.observability.svc:4318"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: ""
+            # DISABLED by default — `console,sqlite` keeps traces on-box.
+            # To enable OTLP export, add `otel_trace`, e.g.
+            #   value: "console,sqlite,otel_trace"
+            - name: TELEMETRY_SINKS
+              value: "console,sqlite"
+            - name: OTEL_SERVICE_NAME
+              value: "llama-stack"
+
+# ---------------------------------------------------------------------------
+# Llama Stack 0.2.x — configured via the telemetry provider in Helm values.
+# Not applicable to a 0.3.x deployment; shown for reference only.
+# ---------------------------------------------------------------------------
+# telemetry:
+#   - provider_id: meta-reference
+#     provider_type: inline::meta-reference
+#     config:
+#       sqlite_db_path: ${env.SQLITE_DB_PATH:=~/.llama/distributions/starter/trace_store.db}
+#       # DISABLED by default — omit `otel_trace` to keep traces on-box.
+#       # Enable with: console,sqlite,otel_trace
+#       sinks: ${env.TELEMETRY_SINKS:=console,sqlite}
+#       service_name: llama-stack
+#       # DISABLED by default — empty endpoint means no OTLP export.
+#       otel_exporter_otlp_endpoint: ${env.OTEL_EXPORTER_OTLP_ENDPOINT:=}
